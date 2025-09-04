@@ -20,8 +20,13 @@ function App() {
       nadirkitap: true,
       kitantik: true,
       halkkitabevi: true
-    }
+    },
+    enable_google_search: true,
+    custom_sites: []
   });
+
+  const [customSiteInput, setCustomSiteInput] = useState('');
+  const [showAddSite, setShowAddSite] = useState({});
 
   useEffect(() => {
     fetchBooks();
