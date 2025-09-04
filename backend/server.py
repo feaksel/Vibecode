@@ -901,6 +901,97 @@ async def update_settings(settings: MonitoringSettings):
     
     return settings
 
+@app.post("/api/books/{book_id}/add-site")
+async def add_custom_site(book_id: str, site_data: dict):
+    """Add a custom site to a book's monitoring list"""
+    site_url = site_data.get('url', '').strip()
+    if not site_url:
+        raise HTTPException(status_code=400, detail="Site URL is required")
+    
+    # Ensure URL has protocol
+    if not site_url.startswith(('http://', 'https://')):
+        site_url = f"https://{site_url}"
+    
+    book_data = await db.books.find_one({"id": book_id})
+    if not book_data:
+        raise HTTPException(status_code=404, detail="Book not found")
+    
+    book = Book(**parse_from_mongo(book_data))
+    
+    # Initialize custom_sites if it doesn't exist
+    if not hasattr(book, 'custom_sites') or book.custom_sites is None:
+        book.custom_sites = []
+    
+    # Add site if not already present
+    if site_url not in book.custom_sites:
+        book.custom_sites.append(site_url)
+        
+        # Update in database
+        await db.books.update_one(
+            {"id": book_id},
+            {"$set": {"custom_sites": book.custom_sites}}
+        )
+    
+    return {"message": f"Site {site_url} added successfully", "custom_sites": book.custom_sites}
+
+@app.delete("/api/books/{book_id}/remove-site")
+async def remove_custom_site(book_id: str, site_data: dict):
+    """Remove a custom site from a book's monitoring list"""
+    site_url = site_data.get('url', '').strip()
+    if not site_url:
+        raise HTTPException(status_code=400, detail="Site URL is required")
+    
+    book_data = await db.books.find_one({"id": book_id})
+    if not book_data:
+        raise HTTPException(status_code=404, detail="Book not found")
+    
+    book = Book(**parse_from_mongo(book_data))
+    
+    if hasattr(book, 'custom_sites') and book.custom_sites and site_url in book.custom_sites:
+        book.custom_sites.remove(site_url)
+        
+        # Update in database
+        await db.books.update_one(
+            {"id": book_id},
+            {"$set": {"custom_sites": book.custom_sites}}
+        )
+        
+        return {"message": f"Site {site_url} removed successfully", "custom_sites": book.custom_sites}
+    else:
+        raise HTTPException(status_code=404, detail="Site not found in book's custom sites")
+
+@app.get("/api/debug/scrape-test")
+async def debug_scrape_test(title: str, author: str, site: str = "nadirkitap"):
+    """Debug endpoint to test scraping functionality"""
+    try:
+        if site == "nadirkitap":
+            listings = scraper.scrape_nadirkitap_improved(f"{title} {author}", title, author)
+        elif site == "kitantik":
+            listings = scraper.scrape_kitantik_improved(f"{title} {author}", title, author)
+        elif site == "halkkitabevi":
+            listings = scraper.scrape_halkkitabevi_improved(f"{title} {author}", title, author)
+        elif site == "google":
+            listings = scraper.scrape_google_books(title, author)
+        else:
+            listings = scraper.scrape_with_multiple_strategies(f"https://www.{site}.com", title, author)
+        
+        return {
+            "site": site,
+            "title": title,
+            "author": author,
+            "listings_found": len(listings),
+            "listings": listings[:5]  # Return first 5 for debugging
+        }
+    except Exception as e:
+        return {
+            "error": str(e),
+            "site": site,
+            "title": title,
+            "author": author,
+            "listings_found": 0,
+            "listings": []
+        }
+
 @app.get("/api/health")
 async def health_check():
     return {"status": "healthy", "timestamp": datetime.now(timezone.utc)}
