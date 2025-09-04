@@ -206,6 +206,21 @@ function App() {
     }
   };
 
+  const updateSettings = async (newSettings) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/settings`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newSettings)
+      });
+      if (response.ok) {
+        setSettings(newSettings);
+      }
+    } catch (error) {
+      console.error('Error updating settings:', error);
+    }
+  };
+
   const unreadCount = notifications.filter(n => !n.read).length;
 
   return (
