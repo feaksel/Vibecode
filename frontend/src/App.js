@@ -436,8 +436,15 @@ function App() {
                 books.map((book) => (
                   <div key={book.id} className="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow">
                     <div className="flex justify-between items-start mb-4">
-                      <div>
-                        <h3 className="text-xl font-semibold text-gray-800">{book.title}</h3>
+                      <div className="flex-1">
+                        <div className="flex items-center space-x-2 mb-2">
+                          <h3 className="text-xl font-semibold text-gray-800">{book.title}</h3>
+                          {(book.total_listings_found || 0) > 0 && (
+                            <span className="bg-green-100 text-green-800 px-2 py-1 rounded-full text-xs font-medium animate-pulse">
+                              🎉 {book.total_listings_found} liste bulundu!
+                            </span>
+                          )}
+                        </div>
                         <p className="text-gray-600">Yazar: {book.author}</p>
                         <div className="flex flex-wrap gap-2 mt-2">
                           {book.sites.map((site) => (
@@ -445,28 +452,101 @@ function App() {
                               {site.name}
                             </span>
                           ))}
+                          {book.enable_google_search && (
+                            <span className="bg-green-100 text-green-800 px-2 py-1 rounded-full text-xs">
+                              🔍 Google
+                            </span>
+                          )}
+                          {book.custom_sites && book.custom_sites.length > 0 && (
+                            <span className="bg-purple-100 text-purple-800 px-2 py-1 rounded-full text-xs">
+                              +{book.custom_sites.length} özel site
+                            </span>
+                          )}
                         </div>
                       </div>
-                      <div className="flex space-x-2">
-                        <button
-                          onClick={() => manualCheckBook(book.id)}
-                          disabled={loading}
-                          className="bg-orange-500 hover:bg-orange-600 text-white px-3 py-1 rounded text-sm disabled:opacity-50"
-                        >
-                          🔍 Kontrol Et
-                        </button>
-                        <button
-                          onClick={() => deleteBook(book.id)}
-                          className="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm"
-                        >
-                          🗑️ Sil
-                        </button>
+                      <div className="flex flex-col space-y-2">
+                        <div className="flex space-x-2">
+                          <button
+                            onClick={() => manualCheckBook(book.id)}
+                            disabled={loading}
+                            className="bg-orange-500 hover:bg-orange-600 text-white px-3 py-1 rounded text-sm disabled:opacity-50"
+                          >
+                            🔍 Kontrol Et
+                          </button>
+                          <button
+                            onClick={() => debugScraping(book.title, book.author)}
+                            className="bg-yellow-500 hover:bg-yellow-600 text-white px-3 py-1 rounded text-sm"
+                            title="Debug scraping"
+                          >
+                            🐛 Test
+                          </button>
+                        </div>
+                        <div className="flex space-x-2">
+                          <button
+                            onClick={() => setShowAddSite({ ...showAddSite, [book.id]: !showAddSite[book.id] })}
+                            className="bg-purple-500 hover:bg-purple-600 text-white px-3 py-1 rounded text-sm"
+                          >
+                            ➕ Site Ekle
+                          </button>
+                          <button
+                            onClick={() => deleteBook(book.id)}
+                            className="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm"
+                          >
+                            🗑️ Sil
+                          </button>
+                        </div>
                       </div>
                     </div>
+                    
+                    {/* Custom site management */}
+                    {showAddSite[book.id] && (
+                      <div className="border-t pt-4 mb-4">
+                        <div className="flex space-x-2 mb-2">
+                          <input
+                            type="url"
+                            placeholder="https://example.com"
+                            value={customSiteInput}
+                            onChange={(e) => setCustomSiteInput(e.target.value)}
+                            className="flex-1 border border-gray-300 rounded px-3 py-1 text-sm"
+                            onKeyPress={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                addCustomSite(book.id);
+                              }
+                            }}
+                          />
+                          <button
+                            onClick={() => addCustomSite(book.id)}
+                            className="bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded text-sm"
+                          >
+                            Ekle
+                          </button>
+                        </div>
+                        {book.custom_sites && book.custom_sites.length > 0 && (
+                          <div className="space-y-1">
+                            <p className="text-sm font-medium text-gray-700">Özel Siteler:</p>
+                            {book.custom_sites.map((site, index) => (
+                              <div key={index} className="flex items-center justify-between bg-gray-50 px-2 py-1 rounded">
+                                <span className="text-sm text-gray-600">{site}</span>
+                                <button
+                                  onClick={() => removeCustomSite(book.id, site)}
+                                  className="text-red-500 hover:text-red-700 text-sm"
+                                >
+                                  ❌
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
                     
                     <div className="text-sm text-gray-500">
                       <p>Son kontrol: {book.last_checked ? new Date(book.last_checked).toLocaleString('tr-TR') : 'Henüz kontrol edilmedi'}</p>
                       <p>Durum: {book.is_active ? '✅ Aktif' : '❌ Pasif'}</p>
+                      {(book.total_listings_found || 0) > 0 && (
+                        <p className="text-green-600 font-medium">📊 Toplam {book.total_listings_found} liste bulundu</p>
+                      )}
                     </div>
 
                     {/* Show listings button */}
@@ -475,7 +555,7 @@ function App() {
                         onClick={() => fetchBookListings(book.id)}
                         className="text-blue-500 hover:text-blue-600 text-sm font-medium"
                       >
-                        📋 Bulunan Listeleri Göster
+                        📋 Bulunan Listeleri Göster ({(book.total_listings_found || 0)} liste)
                       </button>
                     </div>
 
@@ -484,11 +564,20 @@ function App() {
                       <div className="mt-4 border-t pt-4">
                         <h4 className="font-medium text-gray-700 mb-2">Bulunan Listeler:</h4>
                         <div className="space-y-2 max-h-48 overflow-y-auto">
-                          {listings[book.id].map((listing) => (
-                            <div key={listing.url} className="bg-gray-50 p-3 rounded border-l-4 border-green-400">
+                          {listings[book.id]
+                            .sort((a, b) => (b.match_score || 0) - (a.match_score || 0)) // Sort by match score
+                            .map((listing, index) => (
+                            <div key={index} className="bg-gray-50 p-3 rounded border-l-4 border-green-400">
                               <div className="flex justify-between items-start">
-                                <div>
-                                  <p className="font-medium text-sm">{listing.title}</p>
+                                <div className="flex-1">
+                                  <div className="flex items-center space-x-2">
+                                    <p className="font-medium text-sm">{listing.title}</p>
+                                    {listing.match_score && (
+                                      <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs">
+                                        Eşleşme: {Math.round(listing.match_score * 100)}%
+                                      </span>
+                                    )}
+                                  </div>
                                   <p className="text-xs text-gray-600">{listing.site_name} - {listing.price}</p>
                                   <p className="text-xs text-gray-500">
                                     {new Date(listing.found_at).toLocaleString('tr-TR')}
@@ -498,7 +587,7 @@ function App() {
                                   href={listing.url}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs"
+                                  className="bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs whitespace-nowrap ml-2"
                                 >
                                   Görüntüle
                                 </a>
