@@ -65,9 +65,12 @@ class Book(BaseModel):
     title: str
     author: str
     sites: List[BookSite]
+    custom_sites: Optional[List[str]] = []  # Custom sites added by user
+    enable_google_search: bool = True
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     last_checked: Optional[datetime] = None
     is_active: bool = True
+    total_listings_found: int = 0  # For UI indicators
 
 class BookListing(BaseModel):
     book_id: str
@@ -78,6 +81,7 @@ class BookListing(BaseModel):
     seller: Optional[str] = None
     condition: Optional[str] = None
     found_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    match_score: float = 0.0  # How well it matches the search criteria
 
 class Notification(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -92,6 +96,8 @@ class MonitoringSettings(BaseModel):
     check_interval_hours: int = 6
     email_notifications: bool = False
     in_app_notifications: bool = True
+    fuzzy_matching: bool = True
+    google_search_enabled: bool = True
 
 # Helper functions
 def prepare_for_mongo(data):
