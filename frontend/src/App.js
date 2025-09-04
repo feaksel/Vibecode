@@ -329,6 +329,78 @@ function App() {
                             <span className="ml-2 text-sm text-gray-700 capitalize">{site}</span>
                           </label>
                         ))}
+                        <label className="flex items-center">
+                          <input
+                            type="checkbox"
+                            checked={newBook.enable_google_search}
+                            onChange={(e) => setNewBook({
+                              ...newBook,
+                              enable_google_search: e.target.checked
+                            })}
+                            className="rounded border-gray-300 text-green-600 focus:ring-green-500"
+                          />
+                          <span className="ml-2 text-sm text-green-700">🔍 Google Arama (Önerilen)</span>
+                        </label>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Özel Siteler (İsteğe bağlı)
+                      </label>
+                      <div className="space-y-2">
+                        {newBook.custom_sites.map((site, index) => (
+                          <div key={index} className="flex items-center space-x-2">
+                            <span className="text-sm text-gray-600 flex-1">{site}</span>
+                            <button
+                              type="button"
+                              onClick={() => setNewBook({
+                                ...newBook,
+                                custom_sites: newBook.custom_sites.filter((_, i) => i !== index)
+                              })}
+                              className="text-red-500 hover:text-red-700 text-sm"
+                            >
+                              ❌
+                            </button>
+                          </div>
+                        ))}
+                        <div className="flex space-x-2">
+                          <input
+                            type="url"
+                            placeholder="https://example.com"
+                            className="flex-1 border border-gray-300 rounded px-2 py-1 text-sm"
+                            onKeyPress={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                const value = e.target.value.trim();
+                                if (value && !newBook.custom_sites.includes(value)) {
+                                  setNewBook({
+                                    ...newBook,
+                                    custom_sites: [...newBook.custom_sites, value]
+                                  });
+                                  e.target.value = '';
+                                }
+                              }
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              const input = e.target.previousElementSibling;
+                              const value = input.value.trim();
+                              if (value && !newBook.custom_sites.includes(value)) {
+                                setNewBook({
+                                  ...newBook,
+                                  custom_sites: [...newBook.custom_sites, value]
+                                });
+                                input.value = '';
+                              }
+                            }}
+                            className="bg-gray-200 hover:bg-gray-300 px-2 py-1 rounded text-sm"
+                          >
+                            ➕
+                          </button>
+                        </div>
+                        <p className="text-xs text-gray-500">Enter tuşu ile de ekleyebilirsiniz</p>
                       </div>
                     </div>
                     <div className="flex space-x-3 pt-4">
