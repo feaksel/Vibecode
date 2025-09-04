@@ -159,18 +159,50 @@ function App() {
     }
   };
 
-  const updateSettings = async (newSettings) => {
+  const addCustomSite = async (bookId) => {
+    if (!customSiteInput.trim()) return;
+
     try {
-      const response = await fetch(`${API_BASE_URL}/api/settings`, {
-        method: 'PUT',
+      const response = await fetch(`${API_BASE_URL}/api/books/${bookId}/add-site`, {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newSettings)
+        body: JSON.stringify({ url: customSiteInput })
       });
+
       if (response.ok) {
-        setSettings(newSettings);
+        await fetchBooks();
+        setCustomSiteInput('');
+        setShowAddSite({ ...showAddSite, [bookId]: false });
       }
     } catch (error) {
-      console.error('Error updating settings:', error);
+      console.error('Error adding custom site:', error);
+    }
+  };
+
+  const removeCustomSite = async (bookId, siteUrl) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/books/${bookId}/remove-site`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: siteUrl })
+      });
+
+      if (response.ok) {
+        await fetchBooks();
+      }
+    } catch (error) {
+      console.error('Error removing custom site:', error);
+    }
+  };
+
+  const debugScraping = async (title, author, site = 'nadirkitap') => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/debug/scrape-test?title=${encodeURIComponent(title)}&author=${encodeURIComponent(author)}&site=${site}`);
+      const data = await response.json();
+      console.log('Debug scraping results:', data);
+      alert(`Scraping test completed!\nSite: ${data.site}\nListings found: ${data.listings_found}\nCheck console for details.`);
+    } catch (error) {
+      console.error('Error testing scraping:', error);
     }
   };
 
