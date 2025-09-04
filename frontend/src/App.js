@@ -96,6 +96,8 @@ function App() {
         title: newBook.title,
         author: newBook.author,
         sites: sitesToTrack,
+        custom_sites: newBook.custom_sites || [],
+        enable_google_search: newBook.enable_google_search,
         is_active: true
       };
 
@@ -107,7 +109,13 @@ function App() {
 
       if (response.ok) {
         await fetchBooks();
-        setNewBook({ title: '', author: '', sites: { nadirkitap: true, kitantik: true, halkkitabevi: true } });
+        setNewBook({ 
+          title: '', 
+          author: '', 
+          sites: { nadirkitap: true, kitantik: true, halkkitabevi: true },
+          enable_google_search: true,
+          custom_sites: []
+        });
         setShowAddBook(false);
       }
     } catch (error) {
