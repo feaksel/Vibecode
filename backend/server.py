@@ -700,33 +700,52 @@ async def check_all_books():
         logger.error(f"Error in background book check: {e}")
 
 async def check_book_listings(book: Book):
-    """Check a specific book for new listings"""
+    """Check a specific book for new listings with improved scraping"""
     try:
         logger.info(f"Checking listings for: {book.title} by {book.author}")
         
         all_current_listings = []
         
-        # Scrape each site
-        if 'nadirkitap' in [site.name.lower() for site in book.sites]:
-            listings = scraper.scrape_nadirkitap(book.title, book.author)
-            all_current_listings.extend([{**listing, 'site_name': 'Nadir Kitap'} for listing in listings])
+        # Check default Turkish sites
+        default_sites = ['nadirkitap', 'kitantik', 'halkkitabevi']
+        for site in book.sites:
+            if site.name.lower() in default_sites:
+                site_url = f"https://www.{site.name.lower()}.com"
+                listings = scraper.scrape_with_multiple_strategies(site_url, book.title, book.author)
+                for listing in listings:
+                    listing['site_name'] = site.name.title()
+                all_current_listings.extend(listings)
         
-        if 'kitantik' in [site.name.lower() for site in book.sites]:
-            listings = scraper.scrape_kitantik(book.title, book.author)
-            all_current_listings.extend([{**listing, 'site_name': 'Kitantik'} for listing in listings])
+        # Check custom sites if any
+        if hasattr(book, 'custom_sites') and book.custom_sites:
+            for custom_site in book.custom_sites:
+                try:
+                    listings = scraper.scrape_generic_site(custom_site, book.title, book.author)
+                    all_current_listings.extend(listings)
+                except Exception as e:
+                    logger.warning(f"Failed to scrape custom site {custom_site}: {e}")
         
-        if 'halkkitabevi' in [site.name.lower() for site in book.sites]:
-            listings = scraper.scrape_halkkitabevi(book.title, book.author)
-            all_current_listings.extend([{**listing, 'site_name': 'Halk Kitabevi'} for listing in listings])
+        # Google search if enabled
+        if getattr(book, 'enable_google_search', True):
+            try:
+                google_listings = scraper.scrape_google_books(book.title, book.author)
+                all_current_listings.extend(google_listings)
+            except Exception as e:
+                logger.warning(f"Google search failed: {e}")
         
-        # Check for new listings
+        logger.info(f"Found {len(all_current_listings)} total listings before deduplication")
+        
+        # Get existing listings to check for new ones
         existing_listings = await db.listings.find({"book_id": book.id}).to_list(length=None)
         existing_urls = {listing['url'] for listing in existing_listings}
         
+        # Find new listings
         new_listings = []
         for listing in all_current_listings:
-            if listing['url'] not in existing_urls:
+            if listing['url'] not in existing_urls and listing['url']:
                 new_listings.append(listing)
+        
+        logger.info(f"Found {len(new_listings)} new listings for {book.title}")
         
         # Save new listings and create notifications
         for listing in new_listings:
@@ -737,32 +756,46 @@ async def check_book_listings(book: Book):
                 price=listing['price'],
                 url=listing['url'],
                 seller=listing.get('seller'),
-                condition=listing.get('condition')
+                condition=listing.get('condition'),
+                match_score=listing.get('match_score', 0.0)
             )
             
             await db.listings.insert_one(prepare_for_mongo(listing_doc.dict()))
             
-            # Create notification
-            notification = Notification(
-                book_id=book.id,
-                book_title=book.title,
-                message=f"Yeni liste bulundu: {listing['title']} - {listing['price']}",
-                listing_url=listing['url']
-            )
-            
-            await db.notifications.insert_one(prepare_for_mongo(notification.dict()))
-            logger.info(f"New listing found for {book.title}: {listing['title']}")
+            # Create notification for high-scoring matches
+            if listing.get('match_score', 0) > 0.5:
+                notification = Notification(
+                    book_id=book.id,
+                    book_title=book.title,
+                    message=f"Yeni eşleşme bulundu: {listing['title']} - {listing['price']} (Eşleşme: {int(listing.get('match_score', 0) * 100)}%)",
+                    listing_url=listing['url']
+                )
+                
+                await db.notifications.insert_one(prepare_for_mongo(notification.dict()))
+                logger.info(f"High-quality match found for {book.title}: {listing['title']} (score: {listing.get('match_score', 0):.2f})")
         
-        # Update book's last checked time
+        # Update book's statistics
+        total_listings = await db.listings.count_documents({"book_id": book.id})
         await db.books.update_one(
             {"id": book.id},
-            {"$set": {"last_checked": datetime.now(timezone.utc).isoformat()}}
+            {"$set": {
+                "last_checked": datetime.now(timezone.utc).isoformat(),
+                "total_listings_found": total_listings
+            }}
         )
         
-        logger.info(f"Found {len(new_listings)} new listings for {book.title}")
+        logger.info(f"Book check completed for {book.title}. Total listings in DB: {total_listings}")
         
     except Exception as e:
         logger.error(f"Error checking book listings for {book.title}: {e}")
+        # Still update the last_checked time even if there was an error
+        try:
+            await db.books.update_one(
+                {"id": book.id},
+                {"$set": {"last_checked": datetime.now(timezone.utc).isoformat()}}
+            )
+        except:
+            pass
 
 # Schedule the background task
 scheduler.add_job(
