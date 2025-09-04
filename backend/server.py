@@ -14,6 +14,11 @@ import asyncio
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 import logging
+import re
+from urllib.parse import quote
+from difflib import SequenceMatcher
+import time
+import random
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
