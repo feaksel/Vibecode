@@ -138,7 +138,7 @@ class BookScraper:
             'Cache-Control': 'no-cache',
             'Pragma': 'no-cache'
         })
-        self.delay_range = (2, 5)  # Random delay between requests
+        self.delay_range = (2, 5)
 
     def similarity_score(self, text1: str, text2: str) -> float:
         """Calculate similarity between two strings"""
@@ -148,10 +148,8 @@ class BookScraper:
         """Clean and normalize text for better matching"""
         if not text:
             return ""
-        # Remove extra whitespace and normalize
         text = re.sub(r'\s+', ' ', text.strip())
-        # Remove common suffixes that might cause mismatches
-        text = re.sub(r'\s*\(.*?\)\s*', ' ', text)  # Remove parentheses content
+        text = re.sub(r'\s*\(.*?\)\s*', ' ', text)
         return text.lower()
 
     def is_match(self, listing_title: str, search_title: str, search_author: str, threshold: float = 0.6) -> tuple:
@@ -160,27 +158,21 @@ class BookScraper:
         clean_search_title = self.clean_text(search_title)
         clean_search_author = self.clean_text(search_author)
         
-        # Check title similarity
         title_score = self.similarity_score(clean_listing, clean_search_title)
         
-        # Check if author appears in the listing
         author_score = 0.0
         if clean_search_author:
-            # Split author name and check each part
             author_parts = clean_search_author.split()
             for part in author_parts:
                 if len(part) > 2 and part in clean_listing:
                     author_score = max(author_score, 0.8)
                 else:
-                    # Check similarity with author parts
                     for word in clean_listing.split():
                         score = self.similarity_score(word, part)
                         if score > 0.7:
                             author_score = max(author_score, score)
         
-        # Combined score
         combined_score = (title_score * 0.7) + (author_score * 0.3)
-        
         return combined_score >= threshold, combined_score
 
     def generate_consistent_url(self, site_name: str, title: str, author: str, index: int) -> str:
@@ -189,34 +181,204 @@ class BookScraper:
         hash_id = hashlib.md5(content.encode()).hexdigest()[:8]
         return f"https://www.{site_name.lower().replace(' ', '')}.com/kitap-{hash_id}"
 
+    def generate_mock_listings(self, site_name: str, title: str, author: str) -> List[dict]:
+        """NO MORE MOCK DATA - force real scraping"""
+        logger.warning(f"NO MOCK DATA - forcing real scraping for: {title}")
+        return []  # Always return empty to force real scraping
+
+    def scrape_nadirkitap_improved(self, search_term: str, original_title: str, original_author: str) -> List[dict]:
+        """Bypass Cloudflare and scrape nadirkitap for real"""
+        try:
+            import cloudscraper
+        except ImportError:
+            logger.error("cloudscraper not installed. Run: pip install cloudscraper")
+            return []
+        
+        search_query = quote(search_term.strip(), safe='')
+        url = f"https://www.nadirkitap.com/kitapara_sonuc.php?kelime={search_query}"
+        
+        try:
+            # Create CloudScraper session
+            scraper = cloudscraper.create_scraper(
+                browser={
+                    'browser': 'chrome',
+                    'platform': 'windows',
+                    'desktop': True
+                }
+            )
+            
+            logger.info(f"REAL SCRAPING with Cloudflare bypass: {url}")
+            
+            # Make request
+            response = scraper.get(url, timeout=30)
+            
+            if response.status_code == 200 and "Just a moment" not in response.text:
+                logger.info(f"Cloudflare bypass SUCCESS! Got {len(response.text)} chars")
+                
+                soup = BeautifulSoup(response.content, 'html.parser')
+                
+                # Debug what we actually got
+                logger.info(f"Page title: {soup.title.string if soup.title else 'No title'}")
+                
+                # Look for ANY links that might be books
+                listings = []
+                all_links = soup.find_all('a', href=True)
+                logger.info(f"Found {len(all_links)} links to check")
+                
+                for link in all_links:
+                    text = link.get_text(strip=True)
+                    href = link.get('href')
+                    
+                    # Skip navigation
+                    if any(skip in text.lower() for skip in ['anasayfa', 'kategori', 'sepet', 'üye', 'giriş', 'arama']):
+                        continue
+                    
+                    # Check if it looks like our book
+                    if len(text) > 10:
+                        title_words = [word for word in original_title.lower().split() if len(word) > 3]
+                        author_words = [word for word in original_author.lower().split() if len(word) > 3]
+                        text_lower = text.lower()
+                        
+                        title_matches = sum(1 for word in title_words if word in text_lower)
+                        author_matches = sum(1 for word in author_words if word in text_lower)
+                        
+                        if title_matches > 0 or author_matches > 0:
+                            if not href.startswith('http'):
+                                href = f"https://www.nadirkitap.com{href}"
+                            
+                            match_score = (title_matches + author_matches) / max(len(title_words) + len(author_words), 1)
+                            
+                            listings.append({
+                                'title': text,
+                                'price': "Siteyi kontrol edin",
+                                'url': href,
+                                'seller': 'Nadir Kitap',
+                                'condition': 'İkinci el',
+                                'match_score': match_score
+                            })
+                            
+                            logger.info(f"REAL MATCH FOUND: {text[:50]}... (matches: {title_matches + author_matches})")
+                
+                logger.info(f"Total real listings found: {len(listings)}")
+                return listings[:10]
+            
+            else:
+                logger.error(f"Cloudflare bypass failed: {response.status_code}, content: {response.text[:200]}")
+                return []
+                
+        except Exception as e:
+            logger.error(f"Scraping error: {e}")
+            return []
+
+    def scrape_kitantik_improved(self, search_term: str, original_title: str, original_author: str) -> List[dict]:
+        """Scrape kitantik with basic approach"""
+        search_query = quote(search_term.strip(), safe='')
+        url = f"https://www.kitantik.com/ara?q={search_query}"
+        
+        try:
+            logger.info(f"Scraping Kitantik: {url}")
+            response = self.session.get(url, timeout=15)
+            
+            if response.status_code == 200:
+                soup = BeautifulSoup(response.content, 'html.parser')
+                listings = []
+                
+                # Simple approach for Kitantik
+                all_links = soup.find_all('a', href=True)
+                
+                for link in all_links:
+                    text = link.get_text(strip=True)
+                    href = link.get('href')
+                    
+                    if len(text) > 10:
+                        title_words = [word for word in original_title.lower().split() if len(word) > 3]
+                        text_lower = text.lower()
+                        matches = sum(1 for word in title_words if word in text_lower)
+                        
+                        if matches > 0:
+                            if not href.startswith('http'):
+                                href = f"https://www.kitantik.com{href}"
+                            
+                            listings.append({
+                                'title': text,
+                                'price': "Siteyi kontrol edin",
+                                'url': href,
+                                'seller': 'Kitantik',
+                                'condition': 'İkinci el',
+                                'match_score': matches / len(title_words)
+                            })
+                
+                logger.info(f"Kitantik found {len(listings)} listings")
+                return listings[:10]
+                
+        except Exception as e:
+            logger.error(f"Kitantik scraping error: {e}")
+            
+        return []
+
+    def scrape_halkkitabevi_improved(self, search_term: str, original_title: str, original_author: str) -> List[dict]:
+        """Scrape halkkitabevi with basic approach"""
+        search_query = quote(search_term.strip(), safe='')
+        url = f"https://www.halkkitabevi.com/ara?q={search_query}"
+        
+        try:
+            logger.info(f"Scraping Halk Kitabevi: {url}")
+            response = self.session.get(url, timeout=15)
+            
+            if response.status_code == 200:
+                soup = BeautifulSoup(response.content, 'html.parser')
+                listings = []
+                
+                all_links = soup.find_all('a', href=True)
+                
+                for link in all_links:
+                    text = link.get_text(strip=True)
+                    href = link.get('href')
+                    
+                    if len(text) > 10:
+                        title_words = [word for word in original_title.lower().split() if len(word) > 3]
+                        text_lower = text.lower()
+                        matches = sum(1 for word in title_words if word in text_lower)
+                        
+                        if matches > 0:
+                            if not href.startswith('http'):
+                                href = f"https://www.halkkitabevi.com{href}"
+                            
+                            listings.append({
+                                'title': text,
+                                'price': "Siteyi kontrol edin",
+                                'url': href,
+                                'seller': 'Halk Kitabevi',
+                                'condition': 'İkinci el',
+                                'match_score': matches / len(title_words)
+                            })
+                
+                logger.info(f"Halk Kitabevi found {len(listings)} listings")
+                return listings[:10]
+                
+        except Exception as e:
+            logger.error(f"Halk Kitabevi scraping error: {e}")
+            
+        return []
+
     def scrape_with_multiple_strategies(self, site_url: str, title: str, author: str) -> List[dict]:
         """Try multiple search strategies for better results"""
         all_listings = []
         
-        # Strategy 1: Full title + author
-        listings = self.try_search_strategy(site_url, f"{title} {author}", title, author)
-        all_listings.extend(listings)
+        strategies = [
+            f"{title} {author}",
+            title,
+            author
+        ]
         
-        # Strategy 2: Title only
-        if len(all_listings) < 3:
-            listings = self.try_search_strategy(site_url, title, title, author)
+        for search_term in strategies:
+            listings = self.try_search_strategy(site_url, search_term, title, author)
             all_listings.extend(listings)
+            
+            if len(all_listings) >= 5:  # Stop if we have enough results
+                break
         
-        # Strategy 3: Author only
-        if len(all_listings) < 3:
-            listings = self.try_search_strategy(site_url, author, title, author)
-            all_listings.extend(listings)
-        
-        # Strategy 4: Key words from title
-        if len(all_listings) < 3:
-            title_words = title.split()
-            if len(title_words) > 1:
-                key_words = [word for word in title_words if len(word) > 3][:3]
-                for word in key_words:
-                    listings = self.try_search_strategy(site_url, word, title, author)
-                    all_listings.extend(listings)
-        
-        # Remove duplicates and return top matches
+        # Remove duplicates
         unique_listings = []
         seen_urls = set()
         
@@ -225,14 +387,12 @@ class BookScraper:
                 seen_urls.add(listing['url'])
                 unique_listings.append(listing)
         
-        # Sort by match score and return top 10
-        unique_listings.sort(key=lambda x: x.get('match_score', 0), reverse=True)
         return unique_listings[:10]
 
     def try_search_strategy(self, site_url: str, search_term: str, original_title: str, original_author: str) -> List[dict]:
         """Try a specific search strategy"""
         try:
-            time.sleep(random.uniform(*self.delay_range))  # Random delay
+            time.sleep(random.uniform(*self.delay_range))
             
             if 'nadirkitap.com' in site_url:
                 return self.scrape_nadirkitap_improved(search_term, original_title, original_author)
@@ -246,499 +406,54 @@ class BookScraper:
         except Exception as e:
             logger.warning(f"Search strategy failed for {site_url}: {e}")
             return []
-def scrape_nadirkitap_improved(self, search_term: str, original_title: str, original_author: str) -> List[dict]:
-    """Bypass Cloudflare and scrape for real"""
-    import cloudscraper
-    
-    search_query = quote(search_term.strip(), safe='')
-    url = f"https://www.nadirkitap.com/kitapara_sonuc.php?kelime={search_query}"
-    
-    try:
-        # Create CloudScraper session
-        scraper = cloudscraper.create_scraper(
-            browser={
-                'browser': 'chrome',
-                'platform': 'windows',
-                'desktop': True
-            }
-        )
-        
-        logger.info(f"Bypassing Cloudflare for: {url}")
-        
-        # Make request
-        response = scraper.get(url, timeout=30)
-        
-        if response.status_code == 200 and "Just a moment" not in response.text:
-            logger.info(f"Cloudflare bypass SUCCESS! Got {len(response.text)} chars")
-            
-            soup = BeautifulSoup(response.content, 'html.parser')
-            
-            # Debug what we actually got
-            logger.info(f"Page title: {soup.title.string if soup.title else 'No title'}")
-            logger.info(f"Page content sample: {soup.get_text()[:200]}...")
-            
-            # Look for ANY links that might be books
-            listings = []
-            all_links = soup.find_all('a', href=True)
-            
-            for link in all_links:
-                text = link.get_text(strip=True)
-                href = link.get('href')
-                
-                # Skip navigation
-                if any(skip in text.lower() for skip in ['anasayfa', 'kategori', 'sepet', 'üye']):
-                    continue
-                
-                # Check if it looks like our book
-                if len(text) > 10:
-                    title_words = original_title.lower().split()
-                    text_lower = text.lower()
-                    
-                    matches = sum(1 for word in title_words if len(word) > 3 and word in text_lower)
-                    
-                    if matches > 0:
-                        if not href.startswith('http'):
-                            href = f"https://www.nadirkitap.com{href}"
-                        
-                        listings.append({
-                            'title': text,
-                            'price': "Siteyi kontrol edin",
-                            'url': href,
-                            'seller': 'Nadir Kitap',
-                            'condition': 'İkinci el',
-                            'match_score': matches / len(title_words)
-                        })
-                        
-                        logger.info(f"REAL MATCH FOUND: {text[:50]}...")
-            
-            logger.info(f"Total real listings found: {len(listings)}")
-            return listings[:10]
-        
-        else:
-            logger.error(f"Cloudflare bypass failed: {response.status_code}")
-            return []
-            
-    except Exception as e:
-        logger.error(f"Scraping error: {e}")
-        return []
-   
-    def generate_mock_listings(self, site_name: str, title: str, author: str) -> List[dict]:
-        """No more mock data - force real scraping"""
-        logger.warning(f"NO MOCK DATA - forcing real scraping for: {title}")
-        return []  # Always return empty to force real scraping
-
-    def parse_nadirkitap_results(self, soup: BeautifulSoup, original_title: str, original_author: str) -> List[dict]:
-        """Parse nadirkitap search results"""
-        listings = []
-        
-        # Try multiple selectors for different page layouts
-        selectors = [
-            'div.kitap',
-            'tr.kitap',
-            'div[class*="book"]',
-            'div[class*="item"]',
-            'table tr',
-            'div.product'
-        ]
-        
-        for selector in selectors:
-            elements = soup.select(selector)
-            if elements:
-                logger.info(f"Found {len(elements)} elements with selector: {selector}")
-                
-                for element in elements[:15]:  # Process up to 15 elements
-                    try:
-                        # Find title/link
-                        title_elem = (element.find('a') or 
-                                    element.find('h3') or 
-                                    element.find('h4') or 
-                                    element.find('td'))
-                        
-                        if title_elem:
-                            listing_title = title_elem.get_text(strip=True)
-                            listing_url = title_elem.get('href', '')
-                            
-                            # Skip if no meaningful content
-                            if len(listing_title) < 5:
-                                continue
-                                
-                            # Check if it matches our search
-                            is_match, match_score = self.is_match(listing_title, original_title, original_author)
-                            
-                            if is_match or match_score > 0.3:  # Lower threshold for more results
-                                if listing_url and not listing_url.startswith('http'):
-                                    listing_url = f"https://www.nadirkitap.com{listing_url}"
-                                
-                                # Try to find price
-                                price = "Fiyat belirtilmemiş"
-                                price_patterns = [
-                                    r'(\d+[.,]\d+\s*TL)',
-                                    r'(\d+\s*TL)',
-                                    r'TL\s*(\d+[.,]\d+)',
-                                    r'₺\s*(\d+[.,]?\d*)'
-                                ]
-                                
-                                element_text = element.get_text()
-                                for pattern in price_patterns:
-                                    price_match = re.search(pattern, element_text, re.IGNORECASE)
-                                    if price_match:
-                                        price = price_match.group(0)
-                                        break
-                                
-                                listings.append({
-                                    'title': listing_title,
-                                    'price': price,
-                                    'url': listing_url or f"https://www.nadirkitap.com/kitapara_sonuc.php?kelime={quote(original_title)}",
-                                    'seller': 'Nadir Kitap',
-                                    'condition': 'İkinci el',
-                                    'match_score': match_score
-                                })
-                    
-                    except Exception as e:
-                        logger.warning(f"Error parsing nadirkitap element: {e}")
-                        continue
-                
-                if listings:  # If we found listings with this selector, return them
-                    break
-        
-        return listings
-
-    def scrape_kitantik_improved(self, search_term: str, original_title: str, original_author: str) -> List[dict]:
-        """Improved scraping for kitantik.com with fallback mock data"""
-        try:
-            search_query = quote(search_term, safe='')
-            urls_to_try = [
-                f"https://www.kitantik.com/ara?q={search_query}",
-                f"https://www.kitantik.com/search?q={search_query}",
-                f"https://www.kitantik.com/arama/{search_query}"
-            ]
-            
-            for url in urls_to_try:
-                try:
-                    response = self.session.get(url, timeout=15)
-                    if response.status_code == 200:
-                        soup = BeautifulSoup(response.content, 'html.parser')
-                        listings = self.parse_kitantik_results(soup, original_title, original_author)
-                        if listings:
-                            return listings
-                            
-                except Exception as e:
-                    logger.warning(f"Failed to scrape kitantik URL {url}: {e}")
-                    continue
-            
-            # Fallback to mock data for demonstration
-            return self.generate_mock_listings('Kitantik', original_title, original_author)
-            
-        except Exception as e:
-            logger.error(f"Error scraping kitantik: {e}")
-            return self.generate_mock_listings('Kitantik', original_title, original_author)
-
-    def parse_kitantik_results(self, soup: BeautifulSoup, original_title: str, original_author: str) -> List[dict]:
-        """Parse kitantik search results"""
-        listings = []
-        
-        selectors = [
-            'div.product',
-            'div[class*="book"]',
-            'div[class*="item"]',
-            'div.card',
-            'div[class*="result"]',
-            'a[href*="/kitap/"]'
-        ]
-        
-        for selector in selectors:
-            elements = soup.select(selector)
-            if elements:
-                logger.info(f"Found {len(elements)} kitantik elements with selector: {selector}")
-                
-                for element in elements[:15]:
-                    try:
-                        title_elem = (element.find('a') or 
-                                    element.find('h3') or 
-                                    element.find('h2') or
-                                    element.find('h4'))
-                        
-                        if title_elem:
-                            listing_title = title_elem.get_text(strip=True)
-                            listing_url = title_elem.get('href', '')
-                            
-                            if len(listing_title) < 5:
-                                continue
-                                
-                            is_match, match_score = self.is_match(listing_title, original_title, original_author)
-                            
-                            if is_match or match_score > 0.3:
-                                if listing_url and not listing_url.startswith('http'):
-                                    listing_url = f"https://www.kitantik.com{listing_url}"
-                                
-                                # Try to find price
-                                price = "Fiyat belirtilmemiş"
-                                element_text = element.get_text()
-                                price_patterns = [
-                                    r'(\d+[.,]\d+\s*TL)',
-                                    r'(\d+\s*TL)',
-                                    r'₺\s*(\d+[.,]?\d*)'
-                                ]
-                                
-                                for pattern in price_patterns:
-                                    price_match = re.search(pattern, element_text, re.IGNORECASE)
-                                    if price_match:
-                                        price = price_match.group(0)
-                                        break
-                                
-                                listings.append({
-                                    'title': listing_title,
-                                    'price': price,
-                                    'url': listing_url or f"https://www.kitantik.com/ara?q={quote(original_title)}",
-                                    'seller': 'Kitantik',
-                                    'condition': 'İkinci el',
-                                    'match_score': match_score
-                                })
-                    
-                    except Exception as e:
-                        logger.warning(f"Error parsing kitantik element: {e}")
-                        continue
-                
-                if listings:
-                    break
-        
-        return listings
-
-    def scrape_halkkitabevi_improved(self, search_term: str, original_title: str, original_author: str) -> List[dict]:
-        """Improved scraping for halkkitabevi.com with fallback mock data"""
-        try:
-            search_query = quote(search_term, safe='')
-            urls_to_try = [
-                f"https://www.halkkitabevi.com/ara?q={search_query}",
-                f"https://www.halkkitabevi.com/search?query={search_query}",
-                f"https://www.halkkitabevi.com/arama/{search_query}"
-            ]
-            
-            for url in urls_to_try:
-                try:
-                    response = self.session.get(url, timeout=15)
-                    if response.status_code == 200:
-                        soup = BeautifulSoup(response.content, 'html.parser')
-                        listings = self.parse_halkkitabevi_results(soup, original_title, original_author)
-                        if listings:
-                            return listings
-                            
-                except Exception as e:
-                    logger.warning(f"Failed to scrape halkkitabevi URL {url}: {e}")
-                    continue
-            
-            # Fallback to mock data for demonstration
-            return self.generate_mock_listings('Halk Kitabevi', original_title, original_author)
-            
-        except Exception as e:
-            logger.error(f"Error scraping halkkitabevi: {e}")
-            return self.generate_mock_listings('Halk Kitabevi', original_title, original_author)
-
-    def parse_halkkitabevi_results(self, soup: BeautifulSoup, original_title: str, original_author: str) -> List[dict]:
-        """Parse halkkitabevi search results"""
-        listings = []
-        
-        selectors = [
-            'div.product',
-            'div[class*="book"]',
-            'div[class*="item"]',
-            'div.card',
-            'a[href*="/kitap"]'
-        ]
-        
-        for selector in selectors:
-            elements = soup.select(selector)
-            if elements:
-                logger.info(f"Found {len(elements)} halkkitabevi elements with selector: {selector}")
-                
-                for element in elements[:15]:
-                    try:
-                        title_elem = (element.find('a') or 
-                                    element.find('h3') or 
-                                    element.find('h2'))
-                        
-                        if title_elem:
-                            listing_title = title_elem.get_text(strip=True)
-                            listing_url = title_elem.get('href', '')
-                            
-                            if len(listing_title) < 5:
-                                continue
-                                
-                            is_match, match_score = self.is_match(listing_title, original_title, original_author)
-                            
-                            if is_match or match_score > 0.3:
-                                if listing_url and not listing_url.startswith('http'):
-                                    listing_url = f"https://www.halkkitabevi.com{listing_url}"
-                                
-                                # Try to find price
-                                price = "Fiyat belirtilmemiş"
-                                element_text = element.get_text()
-                                price_patterns = [
-                                    r'(\d+[.,]\d+\s*TL)',
-                                    r'(\d+\s*TL)',
-                                    r'₺\s*(\d+[.,]?\d*)'
-                                ]
-                                
-                                for pattern in price_patterns:
-                                    price_match = re.search(pattern, element_text, re.IGNORECASE)
-                                    if price_match:
-                                        price = price_match.group(0)
-                                        break
-                                
-                                listings.append({
-                                    'title': listing_title,
-                                    'price': price,
-                                    'url': listing_url or f"https://www.halkkitabevi.com/ara?q={quote(original_title)}",
-                                    'seller': 'Halk Kitabevi',
-                                    'condition': 'İkinci el',
-                                    'match_score': match_score
-                                })
-                    
-                    except Exception as e:
-                        logger.warning(f"Error parsing halkkitabevi element: {e}")
-                        continue
-                
-                if listings:
-                    break
-        
-        return listings
 
     def scrape_google_books(self, title: str, author: str) -> List[dict]:
-        """Search using Google for book availability on Turkish sites"""
-        try:
-            # Google search query targeting Turkish book sites
-            search_query = f'"{title}" "{author}" site:nadirkitap.com OR site:kitantik.com OR site:halkkitabevi.com OR site:pandora.com.tr OR site:idefix.com'
-            
-            google_url = f"https://www.google.com/search?q={quote(search_query)}&hl=tr"
-            
-            response = self.session.get(google_url, timeout=15)
-            
-            if response.status_code == 200:
-                soup = BeautifulSoup(response.content, 'html.parser')
-                listings = []
-                
-                # Parse Google search results
-                result_elements = soup.find_all('div', class_='g') or soup.find_all('div', attrs={'data-ved': True})
-                
-                for element in result_elements[:10]:
-                    try:
-                        title_elem = element.find('h3') or element.find('a')
-                        if title_elem:
-                            result_title = title_elem.get_text(strip=True)
-                            result_url = ""
-                            
-                            # Find the URL
-                            link_elem = element.find('a')
-                            if link_elem:
-                                result_url = link_elem.get('href', '')
-                                
-                            # Check if it's relevant
-                            is_match, match_score = self.is_match(result_title, title, author)
-                            
-                            if is_match or match_score > 0.4:
-                                # Determine site name from URL
-                                site_name = "Google Sonucu"
-                                if 'nadirkitap.com' in result_url:
-                                    site_name = "Nadir Kitap"
-                                elif 'kitantik.com' in result_url:
-                                    site_name = "Kitantik"
-                                elif 'halkkitabevi.com' in result_url:
-                                    site_name = "Halk Kitabevi"
-                                elif 'pandora.com.tr' in result_url:
-                                    site_name = "Pandora"
-                                elif 'idefix.com' in result_url:
-                                    site_name = "Idefix"
-                                
-                                listings.append({
-                                    'title': result_title,
-                                    'price': "Google'da görüntüle",
-                                    'url': result_url,
-                                    'seller': site_name,
-                                    'condition': 'Google sonucu',
-                                    'match_score': match_score
-                                })
-                                
-                    except Exception as e:
-                        logger.warning(f"Error parsing Google result: {e}")
-                        continue
-                
-                return listings
-            
-            return []
-            
-        except Exception as e:
-            logger.error(f"Error with Google search: {e}")
-            return []
+        """Basic Google search - often blocked"""
+        logger.info(f"Attempting Google search for {title} by {author}")
+        # Simplified - Google searches are often blocked
+        return []
 
     def scrape_generic_site(self, site_url: str, search_term: str, original_title: str, original_author: str) -> List[dict]:
-        """Generic scraping for user-added sites"""
+        """Generic scraping for custom sites"""
         try:
-            # Try common search URL patterns
-            search_patterns = [
-                f"{site_url}/search?q={quote(search_term)}",
-                f"{site_url}/ara?q={quote(search_term)}",
-                f"{site_url}/arama/{quote(search_term)}",
-                f"{site_url}/?s={quote(search_term)}"
-            ]
+            search_query = quote(search_term, safe='')
+            url = f"{site_url}/search?q={search_query}"
             
-            for url in search_patterns:
-                try:
-                    response = self.session.get(url, timeout=15)
-                    if response.status_code == 200:
-                        soup = BeautifulSoup(response.content, 'html.parser')
+            response = self.session.get(url, timeout=15)
+            if response.status_code == 200:
+                soup = BeautifulSoup(response.content, 'html.parser')
+                
+                listings = []
+                all_links = soup.find_all('a', href=True)
+                
+                for link in all_links:
+                    text = link.get_text(strip=True)
+                    href = link.get('href')
+                    
+                    if len(text) > 10:
+                        title_words = original_title.lower().split()
+                        text_lower = text.lower()
+                        matches = sum(1 for word in title_words if len(word) > 3 and word in text_lower)
                         
-                        # Generic selectors for finding book listings
-                        selectors = [
-                            'div[class*="product"]',
-                            'div[class*="book"]',
-                            'div[class*="item"]',
-                            'div[class*="result"]',
-                            'a[href*="kitap"]',
-                            'div.card'
-                        ]
-                        
-                        listings = []
-                        for selector in selectors:
-                            elements = soup.select(selector)
-                            if elements:
-                                for element in elements[:10]:
-                                    try:
-                                        title_elem = element.find('a') or element.find('h3') or element.find('h2')
-                                        if title_elem:
-                                            listing_title = title_elem.get_text(strip=True)
-                                            listing_url = title_elem.get('href', '')
-                                            
-                                            if len(listing_title) > 5:
-                                                is_match, match_score = self.is_match(listing_title, original_title, original_author)
-                                                
-                                                if is_match or match_score > 0.3:
-                                                    if listing_url and not listing_url.startswith('http'):
-                                                        listing_url = f"{site_url}{listing_url}"
-                                                    
-                                                    listings.append({
-                                                        'title': listing_title,
-                                                        'price': "Siteyi kontrol edin",
-                                                        'url': listing_url or url,
-                                                        'seller': site_url.replace('https://', '').replace('http://', ''),
-                                                        'condition': 'Bilinmiyor',
-                                                        'match_score': match_score
-                                                    })
-                                    except:
-                                        continue
-                                
-                                if listings:
-                                    return listings
-                        
-                except Exception as e:
-                    logger.warning(f"Failed to scrape generic site URL {url}: {e}")
-                    continue
-            
-            return []
-            
+                        if matches > 0:
+                            if not href.startswith('http'):
+                                href = f"{site_url}{href}"
+                            
+                            listings.append({
+                                'title': text,
+                                'price': "Siteyi kontrol edin",
+                                'url': href,
+                                'seller': site_url.replace('https://', '').replace('http://', ''),
+                                'condition': 'Bilinmiyor',
+                                'match_score': matches / len(title_words)
+                            })
+                
+                return listings[:10]
+                
         except Exception as e:
-            logger.error(f"Error scraping generic site {site_url}: {e}")
-            return []
-
+            logger.error(f"Generic site scraping error for {site_url}: {e}")
+            
+        return []
 # Global scraper instance
 scraper = BookScraper()
 
