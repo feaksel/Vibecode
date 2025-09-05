@@ -563,7 +563,7 @@ async def check_book_listings(book: Book):
                 match_score=listing.get('match_score', 0.0)
             )
             
-            await db.listings.insert_one(prepare_for_mongo(listing_doc.dict()))
+            await db.listings.insert_one(prepare_for_mongo(listing_doc.model_dump()))
             
             # Create notification for high-scoring matches
             if listing.get('match_score', 0) > 0.5:
@@ -574,7 +574,7 @@ async def check_book_listings(book: Book):
                     listing_url=listing['url']
                 )
                 
-                await db.notifications.insert_one(prepare_for_mongo(notification.dict()))
+                await db.notifications.insert_one(prepare_for_mongo(notification.model_dump()))
                 logger.info(f"High-quality match found for {book.title}: {listing['title']} (score: {listing.get('match_score', 0):.2f})")
         
         # Update book's statistics
@@ -655,7 +655,7 @@ async def get_books():
 
 @app.post("/api/books", response_model=Book)
 async def create_book(book: Book):
-    book_dict = prepare_for_mongo(book.dict())
+    book_dict = prepare_for_mongo(book.model_dump())
     await db.books.insert_one(book_dict)
     return book
 
@@ -674,7 +674,7 @@ async def delete_book(book_id: str):
 @app.put("/api/books/{book_id}", response_model=Book)
 async def update_book(book_id: str, book: Book):
     book.id = book_id
-    book_dict = prepare_for_mongo(book.dict())
+    book_dict = prepare_for_mongo(book.model_dump())
     
     result = await db.books.replace_one({"id": book_id}, book_dict)
     if result.matched_count == 0:
@@ -727,7 +727,7 @@ async def get_settings():
 async def update_settings(settings: MonitoringSettings):
     await db.settings.replace_one(
         {"type": "monitoring"},
-        {**settings.dict(), "type": "monitoring"},
+        {**settings.model_dump(), "type": "monitoring"},
         upsert=True
     )
     
