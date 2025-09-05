@@ -323,9 +323,9 @@ def scrape_nadirkitap_improved(self, search_term: str, original_title: str, orig
         return []
    
     def generate_mock_listings(self, site_name: str, title: str, author: str) -> List[dict]:
-    """No more mock data - force real scraping"""
-    logger.warning(f"NO MOCK DATA - forcing real scraping for: {title}")
-    return []  # Always return empty to force real scraping
+        """No more mock data - force real scraping"""
+        logger.warning(f"NO MOCK DATA - forcing real scraping for: {title}")
+        return []  # Always return empty to force real scraping
 
     def parse_nadirkitap_results(self, soup: BeautifulSoup, original_title: str, original_author: str) -> List[dict]:
         """Parse nadirkitap search results"""
