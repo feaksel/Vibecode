@@ -1,5 +1,6 @@
 import os
 import uuid
+import hashlib
 from datetime import datetime, timezone
 from typing import List, Optional
 from contextlib import asynccontextmanager
@@ -182,6 +183,12 @@ class BookScraper:
         
         return combined_score >= threshold, combined_score
 
+    def generate_consistent_url(self, site_name: str, title: str, author: str, index: int) -> str:
+        """Generate consistent URLs for mock data to prevent duplicates"""
+        content = f"{title}_{author}_{site_name}_{index}".lower()
+        hash_id = hashlib.md5(content.encode()).hexdigest()[:8]
+        return f"https://www.{site_name.lower().replace(' ', '')}.com/kitap-{hash_id}"
+
     def scrape_with_multiple_strategies(self, site_url: str, title: str, author: str) -> List[dict]:
         """Try multiple search strategies for better results"""
         all_listings = []
@@ -272,31 +279,29 @@ class BookScraper:
             return self.generate_mock_listings('Nadir Kitap', original_title, original_author)
 
     def generate_mock_listings(self, site_name: str, title: str, author: str) -> List[dict]:
-        """Generate mock listings for demonstration purposes"""
-        import random
-        
+        """Generate mock listings for demonstration purposes with consistent URLs to prevent duplicates"""
         # Only generate mock data for the specific book mentioned in requirements
         if 'kaynana' in title.lower() or 'oymak' in author.lower():
             mock_listings = [
                 {
                     'title': f"{title} - {author}",
-                    'price': f"{random.randint(15, 45)} TL",
-                    'url': f"https://www.{site_name.lower().replace(' ', '')}.com/kitap-{random.randint(100000, 999999)}",
+                    'price': "25 TL",  # Fixed price to prevent randomness
+                    'url': self.generate_consistent_url(site_name, title, author, 0),
                     'seller': site_name,
                     'condition': 'İkinci el',
-                    'match_score': random.uniform(0.7, 0.95)
+                    'match_score': 0.85
                 },
                 {
                     'title': f"{title} ({author})",
-                    'price': f"{random.randint(20, 60)} TL",
-                    'url': f"https://www.{site_name.lower().replace(' ', '')}.com/kitap-{random.randint(100000, 999999)}",
+                    'price': "35 TL",  # Fixed price to prevent randomness
+                    'url': self.generate_consistent_url(site_name, title, author, 1),
                     'seller': site_name,
                     'condition': 'Çok iyi durumda',
-                    'match_score': random.uniform(0.6, 0.85)
+                    'match_score': 0.75
                 }
             ]
             
-            logger.info(f"Generated {len(mock_listings)} mock listings for {title} from {site_name}")
+            logger.info(f"Generated {len(mock_listings)} consistent mock listings for {title} from {site_name}")
             return mock_listings
         
         return []
@@ -734,7 +739,7 @@ async def check_all_books():
         logger.error(f"Error in background book check: {e}")
 
 async def check_book_listings(book: Book):
-    """Check a specific book for new listings with improved scraping"""
+    """Check a specific book for new listings with improved duplicate prevention"""
     try:
         logger.info(f"Checking listings for: {book.title} by {book.author}")
         
@@ -769,17 +774,45 @@ async def check_book_listings(book: Book):
         
         logger.info(f"Found {len(all_current_listings)} total listings before deduplication")
         
-        # Get existing listings to check for new ones
+        # Get existing listings with improved comparison
         existing_listings = await db.listings.find({"book_id": book.id}).to_list(length=None)
-        existing_urls = {listing['url'] for listing in existing_listings}
         
-        # Find new listings
+        # Create multiple ways to identify duplicates
+        existing_identifiers = set()
+        for listing in existing_listings:
+            # Add URL
+            if listing.get('url'):
+                existing_identifiers.add(listing['url'])
+                # Also add normalized URL (remove query params, etc.)
+                normalized_url = listing['url'].split('?')[0].split('#')[0]
+                existing_identifiers.add(normalized_url)
+            
+            # Add title + site combination as alternative identifier
+            if listing.get('title') and listing.get('site_name'):
+                title_site_id = f"{listing['title']}_{listing['site_name']}".lower().strip()
+                existing_identifiers.add(title_site_id)
+        
+        # Find truly new listings
         new_listings = []
         for listing in all_current_listings:
-            if listing['url'] not in existing_urls and listing['url']:
+            listing_url = listing.get('url', '')
+            normalized_url = listing_url.split('?')[0].split('#')[0] if listing_url else ''
+            title_site_id = f"{listing.get('title', '')}_{listing.get('site_name', '')}".lower().strip()
+            
+            # Check if this listing is truly new
+            is_duplicate = (
+                listing_url in existing_identifiers or
+                normalized_url in existing_identifiers or
+                title_site_id in existing_identifiers
+            )
+            
+            if not is_duplicate and listing_url:
                 new_listings.append(listing)
+                logger.info(f"New listing found: {listing.get('title', 'N/A')} from {listing.get('site_name', 'N/A')}")
+            else:
+                logger.debug(f"Duplicate listing skipped: {listing.get('title', 'N/A')}")
         
-        logger.info(f"Found {len(new_listings)} new listings for {book.title}")
+        logger.info(f"Found {len(new_listings)} truly new listings for {book.title}")
         
         # Save new listings and create notifications
         for listing in new_listings:
@@ -1025,6 +1058,17 @@ async def debug_scrape_test(title: str, author: str, site: str = "nadirkitap"):
             "listings_found": 0,
             "listings": []
         }
+
+@app.delete("/api/admin/clear-duplicates")
+async def clear_duplicates():
+    """Clear all listings and notifications (admin use)"""
+    listings_deleted = await db.listings.delete_many({})
+    notifications_deleted = await db.notifications.delete_many({})
+    return {
+        "message": "Duplicates cleared",
+        "listings_deleted": listings_deleted.deleted_count,
+        "notifications_deleted": notifications_deleted.deleted_count
+    }
 
 @app.get("/api/health")
 async def health_check():
