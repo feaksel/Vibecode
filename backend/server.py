@@ -321,7 +321,8 @@ def scrape_nadirkitap_improved(self, search_term: str, original_title: str, orig
     except Exception as e:
         logger.error(f"Scraping error: {e}")
         return []
-   def generate_mock_listings(self, site_name: str, title: str, author: str) -> List[dict]:
+   
+    def generate_mock_listings(self, site_name: str, title: str, author: str) -> List[dict]:
     """No more mock data - force real scraping"""
     logger.warning(f"NO MOCK DATA - forcing real scraping for: {title}")
     return []  # Always return empty to force real scraping
