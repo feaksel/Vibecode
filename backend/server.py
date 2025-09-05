@@ -321,33 +321,10 @@ def scrape_nadirkitap_improved(self, search_term: str, original_title: str, orig
     except Exception as e:
         logger.error(f"Scraping error: {e}")
         return []
-    def generate_mock_listings(self, site_name: str, title: str, author: str) -> List[dict]:
-        """Generate mock listings for demonstration purposes with consistent URLs to prevent duplicates"""
-        # Only generate mock data for the specific book mentioned in requirements
-        if 'kaynana' in title.lower() or 'oymak' in author.lower():
-            mock_listings = [
-                {
-                    'title': f"{title} - {author}",
-                    'price': "25 TL",  # Fixed price to prevent randomness
-                    'url': self.generate_consistent_url(site_name, title, author, 0),
-                    'seller': site_name,
-                    'condition': 'İkinci el',
-                    'match_score': 0.85
-                },
-                {
-                    'title': f"{title} ({author})",
-                    'price': "35 TL",  # Fixed price to prevent randomness
-                    'url': self.generate_consistent_url(site_name, title, author, 1),
-                    'seller': site_name,
-                    'condition': 'Çok iyi durumda',
-                    'match_score': 0.75
-                }
-            ]
-            
-            logger.info(f"Generated {len(mock_listings)} consistent mock listings for {title} from {site_name}")
-            return mock_listings
-        
-        return []
+   def generate_mock_listings(self, site_name: str, title: str, author: str) -> List[dict]:
+    """No more mock data - force real scraping"""
+    logger.warning(f"NO MOCK DATA - forcing real scraping for: {title}")
+    return []  # Always return empty to force real scraping
 
     def parse_nadirkitap_results(self, soup: BeautifulSoup, original_title: str, original_author: str) -> List[dict]:
         """Parse nadirkitap search results"""
