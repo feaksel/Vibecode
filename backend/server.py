@@ -873,6 +873,44 @@ scheduler.add_job(
 )
 
 # API Routes
+
+# Add this to your server.py API routes section
+@app.get("/api/debug/inspect-site")
+async def inspect_nadirkitap(title: str = "imkansız devlet", author: str = "hallaq"):
+    """Debug what the actual website returns"""
+    import requests
+    from bs4 import BeautifulSoup
+    from urllib.parse import quote
+    
+    search_term = f"{title} {author}"
+    search_query = quote(search_term, safe='')
+    url = f"https://www.nadirkitap.com/kitapara_sonuc.php?kelime={search_query}"
+    
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'tr-TR,tr;q=0.9,en;q=0.8',
+        'Referer': 'https://www.nadirkitap.com/'
+    }
+    
+    try:
+        response = requests.get(url, headers=headers, timeout=15)
+        soup = BeautifulSoup(response.content, 'html.parser')
+        
+        return {
+            "url": url,
+            "status_code": response.status_code,
+            "content_length": len(response.content),
+            "title": soup.title.string if soup.title else "No title",
+            "content_sample": response.text[:2000],
+            "all_links": [{"text": a.get_text()[:50], "href": a.get('href')} for a in soup.find_all('a')[:20]],
+            "tables": len(soup.find_all('table')),
+            "page_text_sample": soup.get_text()[:1000]
+        }
+        
+    except Exception as e:
+        return {"error": str(e), "url": url}
+
 @app.get("/api/books", response_model=List[Book])
 async def get_books():
     books_cursor = db.books.find()
