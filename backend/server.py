@@ -246,38 +246,81 @@ class BookScraper:
         except Exception as e:
             logger.warning(f"Search strategy failed for {site_url}: {e}")
             return []
-
-    def scrape_nadirkitap_improved(self, search_term: str, original_title: str, original_author: str) -> List[dict]:
-        """Improved scraping for nadirkitap.com with fallback mock data"""
-        try:
-            search_query = quote(search_term, safe='')
-            urls_to_try = [
-                f"https://www.nadirkitap.com/kitapara_sonuc.php?kelime={search_query}",
-                f"https://www.nadirkitap.com/kitapara_sonuc.php?kelime={search_query}&siralama=yenieklenenler",
-                f"https://www.nadirkitap.com/kitapara_sonuc.php?kelime={search_query}&siralama=fiyatartan"
-            ]
+def scrape_nadirkitap_improved(self, search_term: str, original_title: str, original_author: str) -> List[dict]:
+    """Bypass Cloudflare and scrape for real"""
+    import cloudscraper
+    
+    search_query = quote(search_term.strip(), safe='')
+    url = f"https://www.nadirkitap.com/kitapara_sonuc.php?kelime={search_query}"
+    
+    try:
+        # Create CloudScraper session
+        scraper = cloudscraper.create_scraper(
+            browser={
+                'browser': 'chrome',
+                'platform': 'windows',
+                'desktop': True
+            }
+        )
+        
+        logger.info(f"Bypassing Cloudflare for: {url}")
+        
+        # Make request
+        response = scraper.get(url, timeout=30)
+        
+        if response.status_code == 200 and "Just a moment" not in response.text:
+            logger.info(f"Cloudflare bypass SUCCESS! Got {len(response.text)} chars")
             
-            for url in urls_to_try:
-                try:
-                    response = self.session.get(url, timeout=15)
-                    if response.status_code == 200:
-                        soup = BeautifulSoup(response.content, 'html.parser')
-                        listings = self.parse_nadirkitap_results(soup, original_title, original_author)
-                        if listings:  # If we found results, return them
-                            return listings
-                        
-                except Exception as e:
-                    logger.warning(f"Failed to scrape nadirkitap URL {url}: {e}")
+            soup = BeautifulSoup(response.content, 'html.parser')
+            
+            # Debug what we actually got
+            logger.info(f"Page title: {soup.title.string if soup.title else 'No title'}")
+            logger.info(f"Page content sample: {soup.get_text()[:200]}...")
+            
+            # Look for ANY links that might be books
+            listings = []
+            all_links = soup.find_all('a', href=True)
+            
+            for link in all_links:
+                text = link.get_text(strip=True)
+                href = link.get('href')
+                
+                # Skip navigation
+                if any(skip in text.lower() for skip in ['anasayfa', 'kategori', 'sepet', 'üye']):
                     continue
+                
+                # Check if it looks like our book
+                if len(text) > 10:
+                    title_words = original_title.lower().split()
+                    text_lower = text.lower()
+                    
+                    matches = sum(1 for word in title_words if len(word) > 3 and word in text_lower)
+                    
+                    if matches > 0:
+                        if not href.startswith('http'):
+                            href = f"https://www.nadirkitap.com{href}"
+                        
+                        listings.append({
+                            'title': text,
+                            'price': "Siteyi kontrol edin",
+                            'url': href,
+                            'seller': 'Nadir Kitap',
+                            'condition': 'İkinci el',
+                            'match_score': matches / len(title_words)
+                        })
+                        
+                        logger.info(f"REAL MATCH FOUND: {text[:50]}...")
             
-            # If real scraping fails, provide mock data for demonstration
-            # (In production, you would implement proxy rotation or other anti-bot measures)
-            return self.generate_mock_listings('Nadir Kitap', original_title, original_author)
+            logger.info(f"Total real listings found: {len(listings)}")
+            return listings[:10]
+        
+        else:
+            logger.error(f"Cloudflare bypass failed: {response.status_code}")
+            return []
             
-        except Exception as e:
-            logger.error(f"Error scraping nadirkitap: {e}")
-            return self.generate_mock_listings('Nadir Kitap', original_title, original_author)
-
+    except Exception as e:
+        logger.error(f"Scraping error: {e}")
+        return []
     def generate_mock_listings(self, site_name: str, title: str, author: str) -> List[dict]:
         """Generate mock listings for demonstration purposes with consistent URLs to prevent duplicates"""
         # Only generate mock data for the specific book mentioned in requirements
